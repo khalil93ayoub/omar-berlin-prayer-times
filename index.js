@@ -112,7 +112,9 @@ async function sendPush(subscription,message,keys){
   const unsigned=b64(enc.encode(JSON.stringify({typ:'JWT',alg:'ES256'})))+'.'+b64(enc.encode(JSON.stringify({aud:new URL(subscription.endpoint).origin,exp:Math.floor(Date.now()/1000)+3600,sub:'https://omar-berlin-prayer-times.khalil93ayoub.workers.dev'})));
   const key=await crypto.subtle.importKey('jwk',keys.privateKey,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
   const sig=await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,enc.encode(unsigned));
-  const response=await fetch(subscription.endpoint,{method:'POST',redirect:'error',headers:{Authorization:'vapid t='+unsigned+'.'+b64(sig)+', k='+keys.publicKey,TTL:'120',Urgency:'high','Content-Encoding':'aes128gcm','Content-Type':'application/octet-stream'},body:await encryptPush(subscription,message)});
+  const response=await fetch(subscription.endpoint,{method:'POST',redirect:'manual',headers:{Authorization:'vapid t='+unsigned+'.'+b64(sig)+', k='+keys.publicKey,TTL:'120',Urgency:'high','Content-Encoding':'aes128gcm','Content-Type':'application/octet-stream'},body:await encryptPush(subscription,message)});
+  // Never follow a redirect with the VAPID authorization header or encrypted payload.
+  if(response.status>=300 && response.status<400)throw Error('Push service returned an unexpected redirect.');
   return response.status;
 }
 function validSubscription(s){
