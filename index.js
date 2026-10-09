@@ -144,7 +144,20 @@ export class PrayerPush {
   fetch(request){return this.serial(()=>this.handle(request));}
   async handle(request){
     const path=new URL(request.url).pathname;
-    if(path==='/api/push/key')return Response.json({publicKey:this.keys.publicKey});
+    if(path==='/api/push/key'){
+      if(new URL(request.url).searchParams.get('check')==='crypto'){
+        let stage='VAPID signing';
+        try{
+          const key=await crypto.subtle.importKey('jwk',this.keys.privateKey,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
+          await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,enc.encode('self-test'));
+          stage='Push encryption';
+          const pair=await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'},true,['deriveBits']);
+          await encryptPush({keys:{p256dh:b64(await crypto.subtle.exportKey('raw',pair.publicKey)),auth:b64(crypto.getRandomValues(new Uint8Array(16)))}},{title:'Self-test'});
+          return Response.json({ok:true});
+        }catch(e){return Response.json({ok:false,stage,error:String(e.message).slice(0,180)});}
+      }
+      return Response.json({publicKey:this.keys.publicKey});
+    }
     try{
       const data=await request.json();
       if(!validSubscription(data.subscription)||!/^[a-f0-9]{64}$/.test(data.token))return Response.json({error:'Invalid subscription'},{status:400});
@@ -156,9 +169,12 @@ export class PrayerPush {
       if(path==='/api/push/test'){
         if(!old)return Response.json({error:'Enable reminders first'},{status:400});
         if(Date.now()-(old.testAt||0)<60000)return Response.json({error:'Wait one minute before another test'},{status:429});
-        old.testAt=Date.now();await this.store.put(key,old);
-        const status=await sendPush(old.subscription,{title:'Prayer reminders enabled',body:'You will receive a reminder 10 minutes before each saved prayer time.',tag:'omar-test',url:'/'},this.keys);
+        // Apply cooldown only after a successful send, so a failed test can be retried.
+        let status;
+        try{status=await sendPush(old.subscription,{title:'Prayer reminders enabled',body:'You will receive a reminder 10 minutes before each saved prayer time.',tag:'omar-test',url:'/'},this.keys);}
+        catch(e){return Response.json({error:'Notification sending failed: '+String(e.message).slice(0,180)},{status:502});}
         if(status<200||status>=300)return Response.json({error:'Push service rejected the test ('+status+'). Try disabling and enabling reminders again.'},{status:502});
+        old.testAt=Date.now();await this.store.put(key,old);
         return Response.json({ok:true});
       }
       if(path!=='/api/push/save')return new Response('Not found',{status:404});
@@ -192,3 +208,4 @@ export class PrayerPush {
     await this.rearm();
   });}
 }
+
