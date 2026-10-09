@@ -1,3 +1,11 @@
 name = "omar-berlin-prayer-times"
 main = "index.js"
 compatibility_date = "2026-09-29"
+
+[[durable_objects.bindings]]
+name = "PRAYER_PUSH"
+class_name = "PrayerPush"
+
+[[migrations]]
+tag = "prayer-push-v1"
+new_sqlite_classes = ["PrayerPush"]
